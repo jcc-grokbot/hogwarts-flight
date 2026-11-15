@@ -672,7 +672,7 @@ function update(dt){
       if(playing){combo=1;flash('','OOF! WATCH THE STONEWORK',1200);}sfx('bonk');}
     else{nz=Math.max(nz,floor);player.vz=Math.max(player.vz,0);}}
   player.x=nx;player.y=ny;player.z=clamp(nz,1.4,ALT_MAX);
-  player.bank=lerp(player.bank,turn*.62,1-Math.exp(-dt*5));player.pitchA=lerp(player.pitchA,-Math.atan2(player.vz,player.spd)*.9,1-Math.exp(-dt*5));
+  player.bank=lerp(player.bank,turn*.62,1-Math.exp(-dt*5));player.pitchA=lerp(player.pitchA,Math.atan2(player.vz,player.spd)*.9,1-Math.exp(-dt*5));
   if(player.z<4.5&&isWater(player.x,player.y)){for(let i=0;i<3;i++)parts.push({x:player.x-Math.sin(player.hd)*2+rr(-1,1),y:player.y+Math.cos(player.hd)*2+rr(-1,1),z:.3,vx:rr(-6,6),vy:rr(-6,6),vz:rr(6,14),l:rr(.4,.8),m:.8,c:'#e8f4ff',g:1});
     if(Math.random()<dt*8)ripples.push({x:player.x,y:player.y,r:1,l:1.4});if(playing)score+=dt*15;}
   if(Math.random()<dt*(10+player.boost*50)){const bx=player.x-Math.sin(player.hd)*2.3,by=player.y+Math.cos(player.hd)*2.3;parts.push({x:bx+rr(-.4,.4),y:by+rr(-.4,.4),z:player.z+rr(-.4,.4),vx:0,vy:0,vz:rr(-1,1),l:rr(.5,1.2),m:1.2,c:player.boost>.5?'#ffe07a':'#fff2c4',g:0});}
