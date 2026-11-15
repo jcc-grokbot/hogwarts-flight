@@ -510,6 +510,7 @@ const NEAR=.6;let FAR=1050;const QIMP=[1.7,2.1,2.6,3.2];
 // Each slice is drawn as a rotated, perspective-squashed 2D image at its projected height.
 let nightA=0,drawCalls=0;
 function drawStack(o,c,mirror,ec,alpha){
+  if(o.isPlayer){drawPlayer(c,mirror);return;}
   const sl=o.slices;if(!sl||!sl.length)return;
   const vs=o.vs*(o.scale||1),dx=o.x-cam.x,dy=o.y-cam.y,r=dx*cam.Rx+dy*cam.Ry,f=dx*cam.Fx+dy*cam.Fy;
   const cp=cam.cp,sp=cam.sp,Fl=cam.Fl,ca=Math.cos(o.yaw),sa=Math.sin(o.yaw);
@@ -560,29 +561,54 @@ const PSTAT=[],psil=mk(PG.nx,PG.ny*PG.nz),psctx=psil.getContext('2d');
     let m=M.skin;if(z>.4||x<-.6)m=M.hair;if(x>1.2&&Math.abs(z-.1)<.35&&Math.abs(Math.abs(y)-.75)<.45)m=M.dark;add(6.6+x,y,11.2+z,m);}
   for(let a=0;a<TAU;a+=.25)for(let z=8.6;z<=9.6;z+=.5)add(5.4+Math.cos(a)*1.5,Math.sin(a)*1.5,z,(Math.round(z*2)&1)?M.scarfR:M.scarfY);
 })();
-const player={x:600,y:880,z:22,hd:0,spd:40,vz:0,bank:0,pitchA:0,roll:0,rollT:0,rollDir:1,boost:0,obj:{kind:'stack',x:0,y:0,z:0,vs:.24,yaw:0,slices:[],kMax:0,rad:4.5,reflect:true,isPlayer:true}};
+const player={x:600,y:880,z:22,hd:0,spd:40,vz:0,fpa:0,bank:0,pitchA:0,roll:0,rollT:0,rollDir:1,boost:0,obj:{kind:'stack',x:0,y:0,z:0,vs:.24,yaw:0,slices:[],kMax:0,rad:4.5,reflect:true,isPlayer:true}};
 const pOutline={kind:'stack',x:0,y:0,z:0,vs:.24,yaw:0,slices:[],kMax:0,rad:4.5,offX:0,offY:0};
 let simT=0;
+// MODEL SPACE (player voxels): +x = handle tip (front), -x = bristles (back), +y = rider's RIGHT, +z = up.
+// World: model x -> forward (sin hd,-cos hd), model y -> right (cos hd, sin hd), model z -> up. (yaw handled only by player.hd)
+// Attitude: R = roll+bank (>0 = rolled RIGHT: top toward +y, right side dips); P = pitchA (>0 = nose UP).
+function rotModel(x,y,z,out){const R=player.roll+player.bank,P=player.pitchA,cr=Math.cos(R),sr=Math.sin(R),cp=Math.cos(P),sp=Math.sin(P);
+  const y2=y*cr+z*sr,z2=-y*sr+z*cr,x3=x*cp-z2*sp,z3=x*sp+z2*cp;out[0]=x3;out[1]=y2;out[2]=z3;return out;}
+const PVS=.24;   // world units per model voxel
+function gridToWorld(gx,gy,gz,out){const fx=Math.sin(player.hd),fy=-Math.cos(player.hd),mx=gx-PG.c,my=gy-PG.c,mz=gz-(PG.c-3);
+  out[0]=player.x+PVS*(mx*fx+my*(-fy));out[1]=player.y+PVS*(mx*fy+my*fx);out[2]=player.z+PVS*mz;return out;}
+const _rm=[0,0,0];
 function buildPlayer(){
-  pgrid.fill(0);const t=simT,ca=Math.cos(player.roll+player.bank),sa=Math.sin(player.roll+player.bank),cpch=Math.cos(player.pitchA),spch=Math.sin(player.pitchA);
+  pgrid.fill(0);const t=simT;
   const {nx,ny,nz,c}=PG;
-  const plot=(x,y,z,m)=>{const y2=y*ca-z*sa,z2=y*sa+z*ca,x3=x*cpch-z2*spch,z3=x*spch+z2*cpch;const gx=Math.round(x3+c),gy=Math.round(y2+c),gz=Math.round(z3+c-3);
+  const plot=(x,y,z,m)=>{rotModel(x,y,z,_rm);const gx=Math.round(_rm[0]+c),gy=Math.round(_rm[1]+c),gz=Math.round(_rm[2]+c-3);
     if(gx<0||gy<0||gz<0||gx>=nx||gy>=ny||gz>=nz)return;pgrid[(gz*ny+gy)*nx+gx]=m;};
   for(let i=0;i<PSTAT.length;i+=4)plot(PSTAT[i],PSTAT[i+1],PSTAT[i+2],PSTAT[i+3]);
   const sp=player.spd/40,wv=t*9;
   for(let s=0;s<16;s+=.5){const x=4.6-s,y=.9+Math.sin(wv-s*.55)*s*.1*sp+s*.06,z=9.2+Math.sin(wv*.8-s*.4)*s*.07-s*.1;const m=(Math.floor(s/2)&1)?M.scarfR:M.scarfY;
     for(let w=-.5;w<=.5;w+=.5)for(let h=0;h<=.5;h+=.5)plot(x,y+w,z+h,m);}
   for(let s=0;s<10;s+=.5)for(let y=-2.6-s*.28;y<=2.6+s*.28;y+=.5){const z=5.2-s*.42+Math.sin(wv*1.2-s*.7+y*.3)*s*.14;plot(-.4-s,y,z,Math.abs(y)>2.1+s*.24?M.robein:M.robe);}
-  let k0=-1,k1=-1;pu.fill(0);
-  for(let z=0;z<nz;z++){let any=false;for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const v=pgrid[(z*ny+y)*nx+x];if(!v)continue;any=true;const mt=MATS[v];
-      const up=z+1>=nz||!pgrid[((z+1)*ny+y)*nx+x],cc=up&&mt.top?mt.top:mt.c,L=up?1.15:((x>0&&!pgrid[(z*ny+y)*nx+x-1])||(y>0&&!pgrid[(z*ny+y-1)*nx+x]))?1:.82;
-      pu[(z*ny+y)*nx+x]=pack(cc[0]*L,cc[1]*L,cc[2]*L);}
-    if(any){if(k0<0)k0=z;k1=z;}}
-  pactx.putImageData(pimg,0,0);psctx.globalCompositeOperation='copy';psctx.drawImage(patlas,0,0);psctx.globalCompositeOperation='source-in';psctx.fillStyle='rgba(8,8,22,.8)';psctx.fillRect(0,0,psil.width,psil.height);psctx.globalCompositeOperation='source-over';
-  const sl=[];for(let z=Math.max(0,k0);z<=k1;z++)sl.push({k:z,img:patlas,sx:0,sy:z*ny,w:nx,h:ny,ox:-c,oy:-c});
-  const o=player.obj;o.slices=sl;o.kMax=k1;o.x=player.x;o.y=player.y;o.z=player.z-(c-3)*o.vs;o.yaw=player.hd-Math.PI/2;
-  Object.assign(pOutline,{x:o.x,y:o.y,z:o.z,yaw:o.yaw,kMax:k1,slices:sl.map(s=>Object.assign({},s,{img:psil}))});
+  pvN=0;const G=(x,y,z)=>x<0||y<0||z<0||x>=nx||y>=ny||z>=nz?0:pgrid[(z*ny+y)*nx+x];
+  for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const v=pgrid[(z*ny+y)*nx+x];if(!v)continue;
+    const up=!G(x,y,z+1);if(!up&&G(x-1,y,z)&&G(x+1,y,z)&&G(x,y-1,z)&&G(x,y+1,z)&&G(x,y,z-1))continue; // interior: never visible
+    const mt=MATS[v],cc=up&&mt.top?mt.top:mt.c,L=up?1.15:(!G(x,y,z-1)?.7:(!G(x-1,y,z)||!G(x,y-1,z))?1:.86);
+    pvG[pvN*3]=x+.5;pvG[pvN*3+1]=y+.5;pvG[pvN*3+2]=z+.5;pvC[pvN]=PDBG?(v===M.handle?pack(255,0,0):(v===M.bristle||v===M.bristle2)?pack(0,0,255):v===M.hair?pack(0,255,0):pack(cc[0]*L*.3,cc[1]*L*.3,cc[2]*L*.3)):pack(cc[0]*L,cc[1]*L,cc[2]*L);pvN++;}
+  const o=player.obj;o.x=player.x;o.y=player.y;o.z=player.z;o.slices=[1];o.kMax=1;
 }
+// ---- player renderer: true 3D z-buffered voxel splat (a height-sliced sprite stack draws low parts first, so from the
+// chase camera the near bristles were hidden behind the body when the nose was up, which read as the opposite pitch).
+const pvG=new Float32Array(PG.nx*PG.ny*PG.nz*3),pvC=new Uint32Array(PG.nx*PG.ny*PG.nz);let pvN=0;
+let spCv=mk(64,64),spCx=spCv.getContext('2d'),spImg=spCx.createImageData(64,64),spU=new Uint32Array(spImg.data.buffer),spZ=new Float32Array(64*64);
+const pvS=new Float32Array(PG.nx*PG.ny*PG.nz*5),_w=[0,0,0],OUTL=pack(8,8,22,204);let PDBG=false;
+function drawPlayer(c,mirror){if(!pvN)return;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,n=0;
+  for(let i=0;i<pvN;i++){gridToWorld(pvG[i*3],pvG[i*3+1],pvG[i*3+2],_w);if(!proj(_w[0],_w[1],mirror?-_w[2]:_w[2])||P.d<NEAR)continue;
+    const s=Math.max(1,P.inv*PVS*1.1),h=s/2;pvS[n*5]=P.sx;pvS[n*5+1]=P.sy;pvS[n*5+2]=P.d;pvS[n*5+3]=s;pvS[n*5+4]=i;n++;
+    if(P.sx-h<x0)x0=P.sx-h;if(P.sy-h<y0)y0=P.sy-h;if(P.sx+h>x1)x1=P.sx+h;if(P.sy+h>y1)y1=P.sy+h;}
+  if(!n)return;x0=Math.max(-1,Math.floor(x0)-1);y0=Math.max(-1,Math.floor(y0)-1);x1=Math.min(W+1,Math.ceil(x1)+1);y1=Math.min(H+1,Math.ceil(y1)+1);
+  const bw=x1-x0,bh=y1-y0;if(bw<=0||bh<=0)return;
+  if(bw>spCv.width||bh>spCv.height){const nw=Math.max(bw,spCv.width),nh=Math.max(bh,spCv.height);spCv=mk(nw,nh);spCx=spCv.getContext('2d');spImg=spCx.createImageData(nw,nh);spU=new Uint32Array(spImg.data.buffer);spZ=new Float32Array(nw*nh);}
+  const SW=spCv.width;for(let y=0;y<bh;y++){spU.fill(0,y*SW,y*SW+bw);spZ.fill(1e9,y*SW,y*SW+bw);}
+  for(let j=0;j<n;j++){const sx=pvS[j*5]-x0,sy=pvS[j*5+1]-y0,d=pvS[j*5+2],s=pvS[j*5+3],col=pvC[pvS[j*5+4]|0];
+    const ax=Math.max(0,Math.round(sx-s/2)),bx=Math.min(bw,Math.max(ax+1,Math.round(sx+s/2))),ay=Math.max(0,Math.round(sy-s/2)),by=Math.min(bh,Math.max(ay+1,Math.round(sy+s/2)));
+    for(let y=ay;y<by;y++){let p=y*SW+ax;for(let x=ax;x<bx;x++,p++)if(d<spZ[p]){spZ[p]=d;spU[p]=col;}}}
+  if(!mirror){for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const p=y*SW+x;if(spU[p])continue;
+    if((x>0&&spU[p-1]>>>24===255)||(x<bw-1&&spU[p+1]>>>24===255)||(y>0&&spU[p-SW]>>>24===255)||(y<bh-1&&spU[p+SW]>>>24===255))spU[p]=OUTL;}}
+  spCx.putImageData(spImg,0,0,0,0,bw,bh);c.setTransform(1,0,0,1,0,0);c.drawImage(spCv,0,0,bw,bh,x0,y0,bw,bh);drawCalls++;}
 
 // ================= gameplay state =================
 const RINGS=[[600,770,14],[598,668,20],[540,620,28],[470,520,70],[420,430,46],[330,380,32],[252,382,30],[300,300,62],[470,330,80],[600,470,104],
@@ -672,7 +698,7 @@ function update(dt){
       if(playing){combo=1;flash('','OOF! WATCH THE STONEWORK',1200);}sfx('bonk');}
     else{nz=Math.max(nz,floor);player.vz=Math.max(player.vz,0);}}
   player.x=nx;player.y=ny;player.z=clamp(nz,1.4,ALT_MAX);
-  player.bank=lerp(player.bank,turn*.62,1-Math.exp(-dt*5));player.pitchA=lerp(player.pitchA,Math.atan2(player.vz,player.spd)*.9,1-Math.exp(-dt*5));
+  player.bank=lerp(player.bank,turn*.62,1-Math.exp(-dt*5));player.fpa=Math.atan2(player.vz,player.spd);player.pitchA=lerp(player.pitchA,player.fpa*.9,1-Math.exp(-dt*5)); // pitchA > 0 = nose up (climbing)
   if(player.z<4.5&&isWater(player.x,player.y)){for(let i=0;i<3;i++)parts.push({x:player.x-Math.sin(player.hd)*2+rr(-1,1),y:player.y+Math.cos(player.hd)*2+rr(-1,1),z:.3,vx:rr(-6,6),vy:rr(-6,6),vz:rr(6,14),l:rr(.4,.8),m:.8,c:'#e8f4ff',g:1});
     if(Math.random()<dt*8)ripples.push({x:player.x,y:player.y,r:1,l:1.4});if(playing)score+=dt*15;}
   if(Math.random()<dt*(10+player.boost*50)){const bx=player.x-Math.sin(player.hd)*2.3,by=player.y+Math.cos(player.hd)*2.3;parts.push({x:bx+rr(-.4,.4),y:by+rr(-.4,.4),z:player.z+rr(-.4,.4),vx:0,vy:0,vz:rr(-1,1),l:rr(.5,1.2),m:1.2,c:player.boost>.5?'#ffe07a':'#fff2c4',g:0});}
@@ -789,7 +815,7 @@ function render(){
   if(squid.on){const dx=squid.x-cam.x,dy=squid.y-cam.y;drawList.push({kind:'squid',_d:(dx*cam.Fx+dy*cam.Fy)*cam.cp+cam.z*cam.sp});}
   drawList.sort((a,b)=>b._d-a._d);const dc0=drawCalls;
   for(const o of drawList){
-    if(o.isPlayer){for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){pOutline.offX=ox;pOutline.offY=oy;drawStack(pOutline,wctx,false,null);}drawStack(o,wctx,false,null);drawLumos();}
+    if(o.isPlayer){drawPlayer(wctx,false);drawLumos();}
     else if(o.kind==='stack')drawStack(o,wctx,false,ectx,o._a<1?o._a:undefined);
     else if(o.kind==='shadow'){if(proj(o.x,o.y,o.z)){wctx.setTransform(1,0,0,1,0,0);const sq=Math.abs((cam.z-o.z)/P.d);wctx.fillStyle='rgba(0,8,20,'+o.a.toFixed(3)+')';wctx.beginPath();wctx.ellipse(P.sx,P.sy,Math.max(1,P.inv*2.4*o.s),Math.max(.5,P.inv*1.4*o.s*sq),0,0,TAU);wctx.fill();}}
     else if(o.kind==='ring')drawRing(o);else if(o.kind==='snitch')drawSnitch();else if(o.kind==='squid')drawSquid();}
@@ -859,7 +885,8 @@ function drawRing(o){
 const lumosImg=(()=>{const n=32,cv=mk(n,n),c=cv.getContext('2d'),g=c.createRadialGradient(n/2,n/2,0,n/2,n/2,n/2);g.addColorStop(0,'rgba(255,248,225,1)');g.addColorStop(.15,'rgba(255,236,190,.8)');g.addColorStop(.5,'rgba(255,210,140,.22)');g.addColorStop(1,'rgba(255,200,120,0)');c.fillStyle=g;c.fillRect(0,0,n,n);return cv;})();
 function drawLumos(){const a=clamp((nightA-.25)/.5,0,1);if(a<=0)return;ectx.setTransform(1,0,0,1,0,0);ectx.imageSmoothingEnabled=true;
   const fx=Math.sin(player.hd),fy=-Math.cos(player.hd);
-  if(viewMode!==1&&proj(player.x+fx*2.6,player.y+fy*2.6,player.z+.4)){const s=Math.max(4,P.inv*2.4);ectx.globalAlpha=a*.85;ectx.drawImage(lumosImg,P.sx-s/2,P.sy-s/2,s,s);}
+  const lw=[0,0,0],lm=[0,0,0];rotModel(12.4,.6,1.4,lm);gridToWorld(lm[0]+PG.c,lm[1]+PG.c,lm[2]+PG.c-3,lw); // wand tip follows the rider's attitude
+  if(viewMode!==1&&proj(lw[0],lw[1],lw[2])){const s=Math.max(4,P.inv*2.4);ectx.globalAlpha=a*.85;ectx.drawImage(lumosImg,P.sx-s/2,P.sy-s/2,s,s);}
   const gz=hget(player.x,player.y),dh=player.z-gz;if(dh<40&&proj(player.x+fx*3,player.y+fy*3,gz)){const s=P.inv*(7+dh*.35),sq=Math.abs((cam.z-gz)/P.d);ectx.globalAlpha=a*.2*(1-dh/40);ectx.drawImage(lumosImg,P.sx-s/2,P.sy-s*sq/2,s,s*sq);}
   ectx.globalAlpha=1;ectx.imageSmoothingEnabled=false;}
 function drawSnitch(){
@@ -936,6 +963,22 @@ function boot(){try{steps[si++]();}catch(e){console.error(e);$('loading').textCo
   window.__ready=true;}
 window.HF={get prof(){return PROF;},get statics(){return statics;},get cam(){return cam;},get state(){return {rollT:+player.rollT.toFixed(2),muted,AC:AC?AC.state:null,QLV,W,H,PX,playing,paused,tin:{...tin},tod,score,ringIdx,viewMode,drawCalls,player:{x:player.x,y:player.y,z:player.z,hd:player.hd},nStatics:statics.length,drawn:drawList.length,snitch:snitch.on,squid:squid.on,sq:[squid.x|0,squid.y|0,+squid.t.toFixed(2)]};},
   setTime(t){tod=t;nightA=nightness();},setView(v){viewMode=v;},teleport(x,y,z,hd){Object.assign(player,{x,y,z,hd,vz:0});camYaw=hd;},start,setPaused(p){paused=p;},setQ(l){qManual=true;setQ(l);},
+  // orientation probe: model points -> same rotation + world mapping + projection as the renderer
+  probe(){const pts={tip:[17,0,1],tail:[-15,0,0],head:[6.6,0,11.2],center:[1,0,0],right:[1,3,0],left:[1,-3,0]},o={},w=[0,0,0],m=[0,0,0];
+    for(const k in pts){const p=pts[k];rotModel(p[0],p[1],p[2],m);gridToWorld(m[0]+PG.c,m[1]+PG.c,m[2]+PG.c-3,w);const ok=proj(w[0],w[1],w[2]);o[k]={w:w.slice(),s:ok?[P.sx,P.sy,P.d]:null};}
+    const f=[o.tip.w[0]-o.tail.w[0],o.tip.w[1]-o.tail.w[1],o.tip.w[2]-o.tail.w[2]],v=[Math.sin(player.hd)*player.spd,-Math.cos(player.hd)*player.spd,player.vz];
+    const fl=Math.hypot(...f),vl=Math.hypot(...v);
+    return {pts:o,fwd:f,vel:v,cosFV:(f[0]*v[0]+f[1]*v[1]+f[2]*v[2])/(fl*vl),hd:player.hd,bank:player.bank,roll:player.roll,pitchA:player.pitchA,fpa:player.fpa,
+      camPitch:cam.pitch,horizonY:HH-cam.Fl*Math.tan(cam.pitch),H,W,css:view.style.transform,viewMode};},
+  setDbgColors(b){PDBG=b;},
+  proj(x,y,z){return proj(x,y,z)?[P.sx,P.sy,P.d]:null;},
+  // centroids of debug-coloured rendered pixels (red = handle, blue = bristles, green = hair) read back from the world canvas
+  pixelCentroids(){const d=wctx.getImageData(0,0,W,H).data,acc={r:[0,0,0],b:[0,0,0],g:[0,0,0]};
+    for(let i=0;i<d.length;i+=4){const R=d[i],G=d[i+1],B=d[i+2],x=(i>>2)%W,y=((i>>2)/W)|0;let k=null;
+      if(R>200&&G<70&&B<70)k='r';else if(B>200&&R<70&&G<70)k='b';else if(G>200&&R<70&&B<70)k='g';if(k){acc[k][0]+=x;acc[k][1]+=y;acc[k][2]++;}}
+    const c=a=>a[2]?[a[0]/a[2],a[1]/a[2],a[2]]:null;return {handle:c(acc.r),bristle:c(acc.b),hair:c(acc.g)};},
+  setInput(t,c,b){tin.on=true;tin.turn=t;tin.climb=c;tin.boost=!!b;},clearInput(){tin.on=false;tin.turn=0;tin.climb=0;tin.boost=false;},
+  doRoll(){doRoll();},setState(o){Object.assign(player,o);},
   snitchNow(){snitch.next=0;},squidNow(){squid.next=0;},setAuto(a){autopilot=a;},
   step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60);}buildPlayer();render();updHUD();},
   bench(n){const t0=performance.now();for(let i=0;i<n;i++){update(1/60);updateCamera(1/60);buildPlayer();render();}return (performance.now()-t0)/n;}};
